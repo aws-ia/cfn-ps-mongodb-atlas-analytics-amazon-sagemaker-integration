@@ -1,0 +1,218 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Quickstart CloudFormation template to integrate MongoDB Atlas with Amazon Sagemaker for Analytics (qs-1trcrtan9)
+
+Metadata:
+  cfn-lint: { config: { ignore_checks: [W9002, W9003, W9006, E3001, E1010] } }
+  QuickStartDocumentation:
+    EntrypointName: "Parameters for deploying MongoDB Trigger, Amazon SageMaker, AWS EventBridge and Lambda functions"
+    Order: "1"
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: MongoDB trigger configuration
+        Parameters:
+          - Profile
+          - AtlasProjectID
+          - DatabaseName
+          - CollectionName
+          - ServiceID
+          - RealmAppID
+          - ActivateMongoDBTriggerResource
+      - Label:
+          default: SageMaker configuration
+        Parameters:
+          - ModelDataS3URI
+          - ModelECRImageURI
+      - Label:
+          default: Lambda configuration
+        Parameters:
+          - PullLambdaECRImageURI
+          - PushLambdaECRImageURI
+          - MongoEndpoint
+      - Label:
+          default: Partner Solution configuration
+        Parameters:
+          - QSS3BucketName
+          - QSS3KeyPrefix
+          - QSS3BucketRegion
+    ParameterLabels:
+      Profile:
+        default: Secret with name "cfn/atlas/profile/{Profile}"
+      AtlasProjectID:
+        default: MongoDB Atlas project ID
+      DatabaseName:
+        default: Database name for the trigger
+      CollectionName:
+        default: Collection name for the trigger
+      ServiceID:
+        default: Realm Service ID
+      RealmAppID:
+        default: Realm App ID
+      ModelDataS3URI:
+        default: ML model artifacts S3 URI
+      ModelECRImageURI:
+        default: Model Amazon ECR image URI
+      PullLambdaECRImageURI:
+        default: Pull Lambda ECR image URI
+      PushLambdaECRImageURI:
+        default: Push Lambda ECR image URI
+      ActivateMongoDBTriggerResource:
+        default: Activate MongoDB Atlas trigger CloudFormation resource
+      QSS3BucketName:
+        default: Quick Start S3 bucket name
+      QSS3KeyPrefix:
+        default: Quick Start S3 key prefix
+      QSS3BucketRegion:
+        default: Quick Start S3 bucket Region
+
+Parameters:
+  # MongoDB Trigger parameters.
+  Profile:
+    Description: Secret, in format "cfn/atlas/profile/{Profile}".
+    Type: String
+  AtlasProjectID:
+    Description: MongoDB Atlas project ID.
+    Type: String
+  DatabaseName:
+    Description: Trigger database name.
+    Type: String
+  CollectionName:
+    Description: Trigger collection name.
+    Type: String
+  ServiceID:
+    Description: Realm service ID.
+    Type: String
+  RealmAppID:
+    Description: Realm app ID.
+    Type: String
+
+  # SageMaker parameters.
+  ModelDataS3URI:
+    Description: URI of the S3 bucket in which model-training artifacts are stored. This path must point to a single gzip compressed tar archive (".tar.gz" suffix).
+    Type: String
+  ModelECRImageURI:
+    Description: URI of a AWS managed Deep Learning Container image or your custom image from Amazon ECR to deploy and run the ML model.
+    Type: String
+
+  # Lambda parameters.
+  PullLambdaECRImageURI:
+    Description: Amazon ECR image URI of the pull Lambda function to read MongoDB events from EventBridge.
+    Type: String
+  PushLambdaECRImageURI:
+    Description: Amazon ECR image URI of the push Lambda function to write results back to MongoDB.
+    Type: String
+  MongoEndpoint:
+    Description: MongoDB endpoint to which the push Lambda function pushes SageMaker results.
+    Type: String
+
+  # Activate MongoDB resource parameters.
+  ActivateMongoDBTriggerResource:
+    Description: Choose "No" if you have already activated a CloudFormation resource for a MongoDB Atlas trigger in your Region.
+    Type: String
+    Default: "Yes"
+    AllowedValues:
+      - "No"
+      - "Yes"
+  QSS3BucketName:
+    AllowedPattern: ^[0-9a-z]+([0-9a-z-\.]*[0-9a-z])*$
+    ConstraintDescription: >-
+      The S3 bucket name can include numbers, lowercase letters,
+      and hyphens (-), but it cannot start or end with a hyphen.
+    Default: aws-ia-us-east-1
+    Description: >-
+      Name of the S3 bucket for your copy of the deployment assets. Keep the default
+      name unless you are customizing the template. Changing the name updates code
+      references to point to a new location.
+    MinLength: 3
+    MaxLength: 63
+    Type: String
+  QSS3BucketRegion:
+    Default: us-east-1
+    Description: >-
+      AWS Region where the S3 bucket (QSS3BucketName) is hosted. Keep
+      the default Region unless you are customizing the template. Changing the Region
+      updates code references to point to a new location. When using your own bucket,
+      specify the Region.
+    Type: String
+  QSS3KeyPrefix:
+    AllowedPattern: ^([0-9a-zA-Z!-_\.\*'\(\)/]+/)*$
+    ConstraintDescription: >-
+      The S3 key prefix can include numbers, lowercase letters, uppercase letters,
+      hyphens (-), underscores (_), periods (.), asterisks (*), single quotes ('),
+      open parenthesis ((), close parenthesis ()), and forward slashes (/). End the
+      prefix with a forward slash.
+    Default: cfn-ps-mongodb-atlas-analytics-amazon-sagemaker-integration/
+    Description: >-
+      S3 key prefix that is used to simulate a folder for your copy of the
+      deployment assets. Keep the default prefix unless you are customizing
+      the template. Changing the prefix updates code references to point to
+      a new location.
+    Type: String
+
+Conditions:
+  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, "aws-quickstart"]
+  ActivateResources: !Equals [!Ref ActivateMongoDBTriggerResource, "Yes"]
+
+Resources:
+  # Activate MongoDB resources.
+  ActivateAtlasResources:
+    Condition: ActivateResources
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - "https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/activate-mongodb-atlas-resources.template.yaml"
+        - S3Region:
+            !If [UsingDefaultBucket, !Ref "AWS::Region", !Ref QSS3BucketRegion]
+          S3Bucket:
+            !If [
+              UsingDefaultBucket,
+              !Sub "${QSS3BucketName}-${AWS::Region}",
+              !Ref QSS3BucketName,
+            ]
+
+  # Create resources for MongoDB and SageMaker analytics.
+  AnalyticsStack:
+    Type: AWS::CloudFormation::Stack
+    Metadata:
+      PseudoDependsOn: !If
+        - ActivateResources
+        - - !Ref ActivateAtlasResources
+        - ""
+    Properties:
+      TemplateURL: !Sub
+        - "https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/mongodb-sagemaker-analytics.template.yaml"
+        - S3Region:
+            !If [UsingDefaultBucket, !Ref "AWS::Region", !Ref QSS3BucketRegion]
+          S3Bucket:
+            !If [
+              UsingDefaultBucket,
+              !Sub "${QSS3BucketName}-${AWS::Region}",
+              !Ref QSS3BucketName,
+            ]
+      Parameters:
+        Profile: !Ref Profile
+        AtlasProjectID: !Ref AtlasProjectID
+        DatabaseName: !Ref DatabaseName
+        CollectionName: !Ref CollectionName
+        ServiceID: !Ref ServiceID
+        RealmAppID: !Ref RealmAppID
+        ModelDataS3URI: !Ref ModelDataS3URI
+        ModelECRImageURI: !Ref ModelECRImageURI
+        PullLambdaECRImageURI: !Ref PullLambdaECRImageURI
+        PushLambdaECRImageURI: !Ref PushLambdaECRImageURI
+        MongoEndpoint: !Ref MongoEndpoint
+
+Outputs:
+  EventTriggerID:
+    Description: "Event Trigger ID."
+    Value: !GetAtt "AnalyticsStack.Outputs.EventTriggerID"
+  SageMakerEndpointARN:
+    Description: "SageMaker endpoint ARN."
+    Value: !GetAtt "AnalyticsStack.Outputs.SageMakerEndpointARN"
+  EventBusName:
+    Description: "Event bus name."
+    Value: !GetAtt "AnalyticsStack.Outputs.EventBusName"
+  Postdeployment:
+    Description: See the deployment guide for postdeployment steps.
+    Value: https://fwd.aws/NmVv7?
